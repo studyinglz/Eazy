@@ -1,6 +1,7 @@
 package eazy
 
 import (
+	"eazy/limiter"
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 	"log"
@@ -29,8 +30,14 @@ type Collector struct {
 	htmlCallbacks     []HTMLCallbackContainer
 	async             bool
 	wg                sync.WaitGroup
+	webBackend
 }
 type CollectorOption func(*Collector)
+
+type webBackend struct {
+	limiter limiter.Limiter
+	
+}
 
 func NewCollector(options ...CollectorOption) *Collector {
 	c := Collector{}
