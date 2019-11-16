@@ -5,6 +5,7 @@ import (
 	"golang.org/x/net/html"
 	"log"
 	"net/http"
+	"sync"
 )
 
 type ResponseCallback func(*http.Response)
@@ -25,16 +26,24 @@ type HTMLCallbackContainer struct {
 }
 type Collector struct {
 	responseCallbacks []ResponseCallback
-	HTMLCallbacks     []HTMLCallbackContainer
+	htmlCallbacks     []HTMLCallbackContainer
+	async             bool
+	wg                sync.WaitGroup
 }
+type CollectorOption func(*Collector)
 
-func NewCollector() *Collector {
-	return &Collector{
-		responseCallbacks: nil,
-		HTMLCallbacks:     nil,
+func NewCollector(options ...CollectorOption) *Collector {
+	c := Collector{}
+	for _, option := range options {
+		option(&c)
+	}
+	return &c
+}
+func Async(a bool) CollectorOption {
+	return func(collector *Collector) {
+		collector.async = a
 	}
 }
-
 func NewHTMLElementFromSelectionNode(resp *http.Response, s *goquery.Selection, n *html.Node, idx int) *HTMLElement {
 	return &HTMLElement{
 		Name:       n.Data,
@@ -52,7 +61,7 @@ func (c *Collector) handleOnHTML(resp *http.Response) error {
 	if err != nil {
 		return err
 	}
-	for _, cc := range c.HTMLCallbacks {
+	for _, cc := range c.htmlCallbacks {
 		i := 0
 		doc.Find(cc.Selector).Each(func(_ int, s *goquery.Selection) {
 			for _, n := range s.Nodes {
@@ -73,13 +82,23 @@ func (c *Collector) OnResponseCallback(callback ResponseCallback) {
 	c.responseCallbacks = append(c.responseCallbacks, callback)
 }
 func (c *Collector) OnHTMLCallback(s string, callback HTMLCallback) {
-	c.HTMLCallbacks = append(c.HTMLCallbacks, HTMLCallbackContainer{
+	c.htmlCallbacks = append(c.htmlCallbacks, HTMLCallbackContainer{
 		Selector: s,
 		Function: callback,
 	})
 }
-
+func (c *Collector) Wait() {
+	c.wg.Wait()
+}
 func (c *Collector) Search(url string) {
+	c.wg.Add(1)
+	if c.async {
+		go c.fetch(url)
+	} else {
+		c.fetch(url)
+	}
+}
+func (c *Collector) fetch(url string) {
 	//u, err := ParseFromUrl(url)
 	//if err != nil {
 	//	log.Println(err)
@@ -92,6 +111,7 @@ func (c *Collector) Search(url string) {
 	//	ProtoMajor: 1,
 	//	ProtoMinor: 1,
 	//}
+	defer c.wg.Done()
 	resp, err := http.Get(url)
 	if err != nil {
 		log.Println(err)
