@@ -6,6 +6,8 @@ import (
 	"golang.org/x/net/html"
 	"log"
 	"net/http"
+	"net/url"
+	"regexp"
 	"sync"
 )
 
@@ -25,18 +27,37 @@ type HTMLCallbackContainer struct {
 	Selector string
 	Function HTMLCallback
 }
+
+type LimitRule struct {
+	pattern regexp.Regexp
+}
+type Backend struct {
+	limiter limiter.Limiter
+	client  http.Client
+}
+
+func NewBackend(limiter limiter.Limiter) *Backend {
+	return &Backend{
+		limiter: limiter,
+		client:  http.Client{},
+	}
+}
+// It will return *response and error, response is expected to close by user
+func (b *Backend) Do(r *http.Request)(*http.Response,error) {
+	if err := b.limiter.Wait(false); err != nil {
+		return nil,err
+	}
+	return b.client.Do(r)
+}
+
+type CollectorOption func(*Collector)
+
 type Collector struct {
 	responseCallbacks []ResponseCallback
 	htmlCallbacks     []HTMLCallbackContainer
 	async             bool
 	wg                sync.WaitGroup
-	webBackend
-}
-type CollectorOption func(*Collector)
-
-type webBackend struct {
-	limiter limiter.Limiter
-	
+	backend           *Backend
 }
 
 func NewCollector(options ...CollectorOption) *Collector {
@@ -46,20 +67,17 @@ func NewCollector(options ...CollectorOption) *Collector {
 	}
 	return &c
 }
+
+// async will allow collector to work asynchronously
 func Async(a bool) CollectorOption {
 	return func(collector *Collector) {
 		collector.async = a
 	}
 }
-func NewHTMLElementFromSelectionNode(resp *http.Response, s *goquery.Selection, n *html.Node, idx int) *HTMLElement {
-	return &HTMLElement{
-		Name:       n.Data,
-		Request:    resp.Request,
-		Response:   resp,
-		Text:       goquery.NewDocumentFromNode(n).Text(),
-		DOM:        s,
-		Index:      idx,
-		attributes: n.Attr,
+
+func AddBackend(backend *Backend) CollectorOption {
+	return func(collector *Collector) {
+		collector.backend = backend
 	}
 }
 
@@ -105,21 +123,21 @@ func (c *Collector) Search(url string) {
 		c.fetch(url)
 	}
 }
-func (c *Collector) fetch(url string) {
-	//u, err := ParseFromUrl(url)
-	//if err != nil {
-	//	log.Println(err)
-	//	return
-	//}
-	//req := &http.Request{
-	//	Method:     "get",
-	//	URL:        u,
-	//	Proto:      "HTTP/1.1",
-	//	ProtoMajor: 1,
-	//	ProtoMinor: 1,
-	//}
+func (c *Collector) fetch(urlS string)  {
 	defer c.wg.Done()
-	resp, err := http.Get(url)
+	u, err := url.Parse(urlS)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	req := &http.Request{
+		Method:     "GET",
+		URL:        u,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+	}
+	resp, err := c.backend.Do(req)
 	if err != nil {
 		log.Println(err)
 		return
@@ -129,5 +147,16 @@ func (c *Collector) fetch(url string) {
 	if err != nil {
 		log.Println(err)
 		return
+	}
+}
+func NewHTMLElementFromSelectionNode(resp *http.Response, s *goquery.Selection, n *html.Node, idx int) *HTMLElement {
+	return &HTMLElement{
+		Name:       n.Data,
+		Request:    resp.Request,
+		Response:   resp,
+		Text:       goquery.NewDocumentFromNode(n).Text(),
+		DOM:        s,
+		Index:      idx,
+		attributes: n.Attr,
 	}
 }

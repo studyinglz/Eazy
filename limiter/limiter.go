@@ -17,22 +17,6 @@ type Limiter interface {
 type TimeLimiter struct {
 	time chan struct{}
 }
-type CombinedLimiter struct {
-	limiters []Limiter
-}
-
-func (c *CombinedLimiter) Wait(async bool) error {
-	for _, l := range c.limiters {
-		if err := l.Wait(async); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-func CombineLimiters(l ...Limiter) *CombinedLimiter {
-	return &CombinedLimiter{limiters: l}
-}
-
 // burst is the maximum possible token, rate is allowed added chance(which is counted by rate op/s
 func NewTimeLimiter(burst int, rate int) TimeLimiter {
 	l := TimeLimiter{time: make(chan struct{}, burst)}
@@ -52,7 +36,7 @@ func NewTimeLimiter(burst int, rate int) TimeLimiter {
 	return l
 }
 
-func (l *TimeLimiter) Wait(async bool) error {
+func (l TimeLimiter) Wait(async bool) error {
 	if async {
 		select {
 		case l.time <- struct{}{}:
@@ -68,3 +52,22 @@ func (l *TimeLimiter) Wait(async bool) error {
 	}
 
 }
+
+
+type CombinedLimiter struct {
+	limiters []Limiter
+}
+func NewCombineLimiter(l ...Limiter) *CombinedLimiter {
+	return &CombinedLimiter{limiters: l}
+}
+
+func (c CombinedLimiter) Wait(async bool) error {
+	for _, l := range c.limiters {
+		if err := l.Wait(async); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+
