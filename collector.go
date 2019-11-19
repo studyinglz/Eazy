@@ -42,12 +42,44 @@ func NewBackend(limiter limiter.Limiter) *Backend {
 		client:  http.Client{},
 	}
 }
+
 // It will return *response and error, response is expected to close by user
-func (b *Backend) Do(r *http.Request)(*http.Response,error) {
+func (b *Backend) Do(r *http.Request) (*http.Response, error) {
 	if err := b.limiter.Wait(false); err != nil {
-		return nil,err
+		return nil, err
 	}
 	return b.client.Do(r)
+}
+
+// Visitor will contain logic about isVisit and set visit
+type Visitor interface {
+	Visited(string) bool
+	SetVisit(string)
+}
+type VisitorInMemory struct {
+	rwLock  *sync.RWMutex
+	visitor map[string]bool
+}
+
+func NewVisitorMemory() *VisitorInMemory {
+	return &VisitorInMemory{
+		rwLock:  &sync.RWMutex{},
+		visitor: make(map[string]bool),
+	}
+}
+
+func (v *VisitorInMemory) Visited(str string) bool {
+	v.rwLock.RLock()
+	defer v.rwLock.RUnlock()
+	if _, ok := v.visitor[str]; !ok {
+		return false
+	}
+	return true
+}
+func (v *VisitorInMemory) SetVisit(str string) {
+	v.rwLock.Lock()
+	defer v.rwLock.Unlock()
+	v.visitor[str] = true
 }
 
 type CollectorOption func(*Collector)
@@ -58,10 +90,15 @@ type Collector struct {
 	async             bool
 	wg                sync.WaitGroup
 	backend           *Backend
+	visitor           Visitor
 }
 
 func NewCollector(options ...CollectorOption) *Collector {
-	c := Collector{}
+	c := Collector{
+		visitor: NewVisitorMemory(),
+		async:   false,
+		backend:NewBackend(limiter.NewTimeLimiter(5,1000)),
+	}
 	for _, option := range options {
 		option(&c)
 	}
@@ -78,6 +115,12 @@ func Async(a bool) CollectorOption {
 func AddBackend(backend *Backend) CollectorOption {
 	return func(collector *Collector) {
 		collector.backend = backend
+	}
+}
+
+func AddVisitor(visitor *Visitor) CollectorOption {
+	return func(collector *Collector) {
+		collector.visitor = *visitor
 	}
 }
 
@@ -123,8 +166,11 @@ func (c *Collector) Search(url string) {
 		c.fetch(url)
 	}
 }
-func (c *Collector) fetch(urlS string)  {
+func (c *Collector) fetch(urlS string) {
 	defer c.wg.Done()
+	if c.visitor.Visited(urlS) {
+		return
+	}
 	u, err := url.Parse(urlS)
 	if err != nil {
 		log.Println(err)
@@ -148,6 +194,7 @@ func (c *Collector) fetch(urlS string)  {
 		log.Println(err)
 		return
 	}
+	c.visitor.SetVisit(urlS)
 }
 func NewHTMLElementFromSelectionNode(resp *http.Response, s *goquery.Selection, n *html.Node, idx int) *HTMLElement {
 	return &HTMLElement{
