@@ -57,8 +57,8 @@ func (l TimeLimiter) Wait(async bool) error {
 type CombinedLimiter struct {
 	limiters []Limiter
 }
-func NewCombineLimiter(l ...Limiter) *CombinedLimiter {
-	return &CombinedLimiter{limiters: l}
+func NewCombineLimiter(l ...Limiter) CombinedLimiter {
+	return CombinedLimiter{limiters: l}
 }
 
 func (c CombinedLimiter) Wait(async bool) error {

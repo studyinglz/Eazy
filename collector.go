@@ -33,13 +33,13 @@ type LimitRule struct {
 }
 type Backend struct {
 	limiter limiter.Limiter
-	client  http.Client
+	client  *http.Client
 }
 
 func NewBackend(limiter limiter.Limiter) *Backend {
 	return &Backend{
 		limiter: limiter,
-		client:  http.Client{},
+		client:  &http.Client{},
 	}
 }
 

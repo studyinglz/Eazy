@@ -12,7 +12,7 @@ import (
 var counter int32 = 0
 var before int32
 func main() {
-	backend := eazy.NewBackend(limiter.NewTimeLimiter(100, 5))
+	backend := eazy.NewBackend(limiter.NewTimeLimiter(100, 100))
 	c := eazy.NewCollector(eazy.Async(true),
 		eazy.AddBackend(backend))
 	c.OnResponseCallback(func(response *http.Response) {
